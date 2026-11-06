@@ -17,10 +17,10 @@ def analyze_statement(stmt) -> dict[str, set[str]]:
         if stmt.query is not None:
             _collect_select(stmt.query, usage, "R")
     elif isinstance(stmt, ast.Update):
-        usage[stmt.table.name].add("U")
+        usage[stmt.table.name].add("U")   # HANYA target UPDATE yang dapat U
         for assignment in stmt.assignments:
-            _collect(assignment.value, usage, "U")
-        _collect(stmt.where, usage, "U")
+            _collect(assignment.value, usage, "R") # FIX: sebelumnya "U". Subquery di SET = Read
+        _collect(stmt.where, usage, "R")  # FIX: sebelumnya "U". Subquery di WHERE = Read
     elif isinstance(stmt, ast.Delete):
         usage[stmt.table.name].add("D")
         _collect(stmt.where, usage, "R")
