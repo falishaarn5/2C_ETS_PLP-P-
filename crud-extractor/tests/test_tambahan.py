@@ -5,10 +5,13 @@ Isi dengan:
    lulus sesudahnya). Beri nama yang menjelaskan bug-nya.
 2. Lima test kasus tepi, masing-masing dengan komentar singkat mengapa kasus itu berisiko.
 """
+import ast
+
 from crud.pipeline import analyze_source
 from crud.lexer import tokenize, TokenType
 from crud.parser import parse_sql
 from crud.resolver import Resolver
+from crud import ast_nodes as ast
 
 def test_update_subquery_di_set_dan_where_adalah_read():
     # Regresi: subquery di UPDATE sebelumnya ditandai "U", seharusnya "R" (Spec Bagian 5)
@@ -65,14 +68,40 @@ def test_komentar_blok_multiline_dilewati():
 def test_kolom_tanpa_qualifier_diresolve_ke_satu_tabel():
     # Regresi: kolom tanpa qualifier sebelumnya menghasilkan resolved=None.
     script = parse_sql("SELECT nama FROM pelanggan WHERE aktif = 1;")
-
     resolver = Resolver()
     resolver.resolve_script(script)
-
     stmt = script.statements[0]
 
     # Periksa kolom nama pada SELECT
     assert stmt.columns[0].expr.resolved == "pelanggan"
-
     # Periksa kolom aktif pada WHERE
     assert stmt.where.left.resolved == "pelanggan"
+
+def test_alias_shadowing_scope_terdalam():
+    # Regresi: alias yang sama harus merujuk ke scope terdalam.
+    sql = """
+    SELECT p.id
+    FROM pelanggan p
+    WHERE p.id IN (
+        SELECT p.pelanggan_id
+        FROM pesanan p
+    );
+    """
+
+    script = parse_sql(sql)
+    assert script.errors == [], script.errors
+
+    resolver = Resolver()
+    diagnostics = resolver.resolve_script(script)
+    # Ambil semua referensi kolom dengan qualifier p.
+    kolom_p = [
+        node for node in ast.iter_nodes(script)
+        if isinstance(node, ast.ColumnRef)
+        and node.qualifier == "p"
+    ]
+
+    # p.id pada query luar harus merujuk ke pelanggan.
+    assert kolom_p[0].resolved == "pelanggan"
+    # p.pelanggan_id pada subquery harus merujuk ke pesanan.
+    assert kolom_p[2].resolved == "pesanan"
+    assert diagnostics == []
