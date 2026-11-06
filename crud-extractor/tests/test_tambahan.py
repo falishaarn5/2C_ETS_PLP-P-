@@ -105,3 +105,85 @@ def test_alias_shadowing_scope_terdalam():
     # p.pelanggan_id pada subquery harus merujuk ke pesanan.
     assert kolom_p[2].resolved == "pesanan"
     assert diagnostics == []
+
+def test_insert_select_dengan_subquery():
+    # Edge case: tabel pada subquery berisiko terlewat sehingga tidak ditandai sebagai "R".
+    sql = """
+    INSERT INTO arsip (id)
+    SELECT p.id
+    FROM pesanan p
+    WHERE p.id IN (
+        SELECT v.id FROM vip v
+    );
+    """
+    result = analyze_source(sql)
+
+    assert result.matrix() == {
+        "arsip": "C",
+        "pesanan": "R",
+        "vip": "R"
+    }
+
+def test_edge_komentar_dengan_operator():
+    # Edge case: operator dalam komentar blok berisiko terbaca sebagai token SQL.
+    toks = tokenize("/* SELECT a <> b */ SELECT nama FROM pelanggan")
+    keywords = [
+        t.value.upper() for t in toks
+        if t.type == TokenType.KEYWORD
+    ]
+    assert keywords == ["SELECT", "FROM"]
+
+
+def test_edge_mixed_case_left_outer_join():
+    # Edge case: keyword mixed-case pada LEFT OUTER JOIN berisiko gagal dikenali Parser.
+    sql = """
+    SeLeCt p.nama
+    FrOm pelanggan p
+    LeFt OuTeR JoIn pesanan o
+    On p.id = o.pelanggan_id
+    """
+    script = parse_sql(sql)
+    assert script.errors == [], script.errors
+
+
+def test_edge_presedensi_dengan_operator():
+    # Edge case: kombinasi AND, OR, dan <> bisa membentuk AST yang salah.
+    sql = """
+    SELECT id FROM pelanggan
+    WHERE status <> 0 OR aktif = 1 AND kota <> 2
+    """
+    script = parse_sql(sql)
+    assert script.errors == [], script.errors
+
+    where = script.statements[0].where
+    assert where.op == "OR"
+    assert where.right.op == "AND"
+
+
+def test_edge_shadowing_dengan_kolom_tanpa_qualifier():
+    # Edge case: kolom tanpa qualifier pada subquery berisiko di resolve ke scope luar.
+    sql = """
+    SELECT p.id
+    FROM pelanggan p
+    WHERE p.id IN (
+        SELECT pelanggan_id
+        FROM pesanan p
+    )
+    """
+    script = parse_sql(sql)
+    assert script.errors == [], script.errors
+
+    resolver = Resolver()
+    diagnostics = resolver.resolve_script(script)
+    kolom = [
+    node for node in ast.iter_nodes(script)
+    if isinstance(node, ast.ColumnRef)
+    ]
+    kolom_dalam = [
+        c for c in kolom
+        if c.name == "pelanggan_id" and c.qualifier is None
+    ]
+
+    assert len(kolom_dalam) == 1
+    assert kolom_dalam[0].resolved == "pesanan"
+    assert diagnostics == []
