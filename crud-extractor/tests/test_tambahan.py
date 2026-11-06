@@ -8,6 +8,7 @@ Isi dengan:
 from crud.pipeline import analyze_source
 from crud.lexer import tokenize, TokenType
 from crud.parser import parse_sql
+from crud.resolver import Resolver
 
 def test_update_subquery_di_set_dan_where_adalah_read():
     # Regresi: subquery di UPDATE sebelumnya ditandai "U", seharusnya "R" (Spec Bagian 5)
@@ -48,3 +49,30 @@ def test_and_lebih_tinggi_dari_or():
 def test_left_outer_join_diterima():
     # Regresi: OUTER tidak dikonsumsi (Spec 3, aturan join)
     assert parse_sql("SELECT a FROM t LEFT OUTER JOIN u ON t.id = u.id").errors == []
+
+def test_keyword_lowercase_tetap_dikenali():
+    # Regresi: keyword lowercase sebelumnya tidak dikenali dengan benar.
+    toks = tokenize("select nama from pelanggan")
+    assert toks[0].type == TokenType.KEYWORD
+    assert toks[0].value.upper() == "SELECT"
+
+def test_komentar_blok_multiline_dilewati():
+    # Regresi: komentar /* ... */ sebelumnya menghasilkan LexError.
+    toks = tokenize("/* komentar\n dua baris */ SELECT")
+    assert [t.value.upper() for t in toks
+            if t.type == TokenType.KEYWORD] == ["SELECT"]
+
+def test_kolom_tanpa_qualifier_diresolve_ke_satu_tabel():
+    # Regresi: kolom tanpa qualifier sebelumnya menghasilkan resolved=None.
+    script = parse_sql("SELECT nama FROM pelanggan WHERE aktif = 1;")
+
+    resolver = Resolver()
+    resolver.resolve_script(script)
+
+    stmt = script.statements[0]
+
+    # Periksa kolom nama pada SELECT
+    assert stmt.columns[0].expr.resolved == "pelanggan"
+
+    # Periksa kolom aktif pada WHERE
+    assert stmt.where.left.resolved == "pelanggan"
