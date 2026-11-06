@@ -123,7 +123,12 @@ class Lexer:
             self._add(TokenType.OP, ch, line, col)
             return
         if ch == "<":
-            op = "<=" if self._match("=") else "<"
+            if self._match("="):                  # "<="
+                op = "<="
+            elif self._match(">"):                # FIX: "<>" sebelumnya tidak dicek
+                op = "<>"
+            else:
+                op = "<"
             self._add(TokenType.OP, op, line, col)
             return
         if ch == ">":
@@ -164,6 +169,10 @@ class Lexer:
                 raise LexError("string tidak ditutup", line, col)
             ch = self._advance()
             if ch == "'":
+                if self._peek() == "'":           # FIX: '' = satu karakter kutip, bukan akhir string
+                    chars.append("'")
+                    self._advance()
+                    continue
                 break
             chars.append(ch)
         self._add(TokenType.STRING, "".join(chars), line, col)
