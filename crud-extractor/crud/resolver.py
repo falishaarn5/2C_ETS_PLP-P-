@@ -91,7 +91,7 @@ class Resolver:
         while scope is not None:
             chain.append(scope)
             scope = scope.parent
-        for scope in reversed(chain):
+        for scope in chain:         # FIX: pencarian alias dari scope terdalam ke luar (shadowing)
             if name in scope.entries:
                 return scope.entries[name]
         return None
@@ -181,4 +181,23 @@ class Resolver:
         #   - tepat satu tabel di scope terdalam -> isi col.resolved
         #   - lebih dari satu tabel              -> warning "ambigu tanpa skema"
         #   - tidak ada tabel                    -> warning
-        pass
+        if self.scope is None:
+            self._warning("kolom tanpa qualifier tidak memiliki scope", col.line)
+            return
+        #jika hanya ada satu sumber, tentukan tabel asal kolom
+        if len(self.scope.entries) == 1:
+            entry = next(iter(self.scope.entries.values()))
+            col.resolved = _target_of(entry)
+        # jika ada beberapa sumber, kolom berpotensi ambigu
+        elif len(self.scope.entries) > 1:
+            self._warning(
+                f"kolom '{col.name}' ambigu tanpa skema",
+                col.line
+            )
+        # jika tidak ada sumber, kolom tidak memiliki tabel asal
+        else:
+            self._warning(
+                f"kolom '{col.name}' tidak memiliki sumber tabel",
+                col.line
+            )
+        
