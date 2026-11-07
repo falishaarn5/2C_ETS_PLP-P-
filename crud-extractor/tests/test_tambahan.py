@@ -106,6 +106,27 @@ def test_alias_shadowing_scope_terdalam():
     assert kolom_p[2].resolved == "pesanan"
     assert diagnostics == []
 
+def test_scope_delete_tidak_bocor_ke_statement_berikutnya():
+    # Regresi: scope DELETE tidak boleh terlihat oleh statement berikutnya.
+    from crud.parser import parse_sql
+    from crud.resolver import Resolver
+
+    sql = """
+    DELETE FROM pelanggan p WHERE p.id = 1;
+    SELECT p.id FROM pesanan o;
+    """
+
+    script = parse_sql(sql)
+    assert script.errors == [], script.errors
+
+    diagnostics = Resolver().resolve_script(script)
+
+    assert any(
+        d.level == "error"
+        and "alias 'p' tidak terdefinisi" in d.message
+        for d in diagnostics
+    )
+
 def test_insert_select_dengan_subquery():
     # Edge case: tabel pada subquery berisiko terlewat sehingga tidak ditandai sebagai "R".
     sql = """
